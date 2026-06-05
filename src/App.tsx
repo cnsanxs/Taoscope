@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { DataSourceProvider } from "@/datasource/context";
 import { createDataSource } from "@/datasource/factory";
+import { subscribeConnectionEvents } from "@/lib/connectionEvents";
 import { useUpdater } from "@/lib/updater";
 import { useAppState } from "@/store/appState";
 import { TitleBar } from "@/components/layout/TitleBar";
@@ -40,6 +41,24 @@ function App() {
   useEffect(() => {
     void checkForUpdate({ silent: true });
   }, [checkForUpdate]);
+
+  // Subscribe to backend reconnect lifecycle events for the lifetime of the
+  // app. Outside Tauri the subscriber is a noop and tears down cleanly.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    void subscribeConnectionEvents().then((fn) => {
+      if (disposed) {
+        fn();
+        return;
+      }
+      unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   // Suppress the default browser context menu globally — the webview shouldn't
   // expose "Inspect / View Source" in a desktop app. shadcn ContextMenu (Radix)

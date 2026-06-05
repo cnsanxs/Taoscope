@@ -1,9 +1,12 @@
+import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import type { HistoryEntry } from "@/datasource/types";
 import { useDataSource } from "@/datasource/context";
 import { useAppState } from "@/store/appState";
 import { confirm } from "@/components/ui/confirm";
+import { fmtShortcut } from "@/lib/platform";
+import { hashString } from "@/lib/hashString";
 import * as editorBridge from "./editorBridge";
 import {
   applyRowCap,
@@ -12,7 +15,11 @@ import {
   isDestructiveStatement,
   leadingKeyword,
 } from "./rowCapInjector";
-import { findStatementAt } from "./splitStatements";
+import {
+  findStatementAt,
+  isSingleLineStatement,
+  splitStatements,
+} from "./splitStatements";
 
 export type ExecMode = "run" | "explain";
 
@@ -48,6 +55,7 @@ export function useExecActiveConsole(
   const setRunOk = useAppState((s) => s.setRunOk);
   const setRunError = useAppState((s) => s.setRunError);
   const setHistory = useAppState((s) => s.setHistory);
+  const setPrimedRange = useAppState((s) => s.setPrimedRange);
 
   const canRun =
     !!activeConsoleId &&
@@ -63,22 +71,81 @@ export function useExecActiveConsole(
     const id = activeConsoleId;
     const fullScratch = runtime?.scratch ?? "";
 
-    // Three-tier SQL resolution: selection → statement-at-cursor → full scratch.
-    let chosenSql: string;
     const sel = editorBridge.getSelectionRange();
+    const cursor = editorBridge.getCursorPos();
+
+    let chosenSql: string;
+
     if (sel) {
+      // CASE A (selection differs from primed) and CASE B (selection
+      // exactly matches primed and scratch is unchanged) both execute the
+      // current selection and drop primed afterward. The distinction
+      // matters for the "what got primed" mental model but not for the
+      // dispatch path.
       chosenSql = editorBridge.getSelectionText();
-    } else {
-      const pos = editorBridge.getCursorPos();
-      if (pos !== null) {
-        const stmt = findStatementAt(fullScratch, pos);
-        chosenSql = stmt?.text ?? fullScratch;
-      } else {
-        chosenSql = fullScratch;
+      setPrimedRange(id, null);
+    } else if (cursor !== null) {
+      const range = findStatementAt(fullScratch, cursor);
+      if (!range) {
+        // CASE D: no resolvable statement (empty / whitespace scratch).
+        setPrimedRange(id, null);
+        return;
       }
+
+      if (isSingleLineStatement(fullScratch, range)) {
+        // CASE C — single-line: execute immediately, drop any stale prime.
+        setPrimedRange(id, null);
+        chosenSql = range.text;
+      } else {
+        // CASE C — multi-line: prime, do not execute.
+        editorBridge.setSelection(range.start, range.end);
+        setPrimedRange(id, {
+          from: range.start,
+          to: range.end,
+          scratchHash: hashString(fullScratch),
+        });
+        toast.info(
+          t("exec.primed-toast", {
+            shortcut: fmtShortcut(
+              mode === "explain" ? ["Mod", "Shift", "Enter"] : ["Mod", "Enter"],
+            ),
+          }),
+          {
+            id: `primed-${id}`,
+            duration: 4000,
+          },
+        );
+        return;
+      }
+    } else {
+      // CASE D fallback — editor not mounted yet; run whatever scratch we have.
+      setPrimedRange(id, null);
+      chosenSql = fullScratch;
     }
 
     if (chosenSql.trim().length === 0) return;
+
+    // Multi-statement guard. If `chosenSql` parses into >1 statements
+    // (e.g. a stale selection covering several `;`-separated SQLs, or a
+    // CASE D fallback to the whole scratch), sending it as a `;`-joined
+    // blob would dispatch only the first statement on the TDengine REST
+    // path and leave the appended `LIMIT 1001` bound to nothing — the
+    // user then sees an uncapped result they didn't ask for. Snap the
+    // choice down to the statement at the document cursor (or the first
+    // statement if no cursor) and warn.
+    const parsed = splitStatements(chosenSql);
+    if (parsed.length > 1) {
+      const docCursor = editorBridge.getCursorPos();
+      const focused =
+        docCursor !== null
+          ? findStatementAt(fullScratch, docCursor)
+          : null;
+      chosenSql = focused?.text ?? parsed[0]?.text ?? chosenSql;
+      toast.warning(t("exec.multi-stmt-warning"), {
+        id: `multi-stmt-${id}`,
+        duration: 4000,
+      });
+    }
 
     // For explain mode, prepend EXPLAIN if absent. History stores the
     // dispatched SQL (with prefix) so replaying from history reproduces the
@@ -88,6 +155,8 @@ export function useExecActiveConsole(
 
     // Irreversible statements (DROP / DELETE) require confirmation before
     // dispatch. EXPLAIN mode never executes the statement, so it is exempt.
+    // The prime step never reaches this point — confirmation only fires on
+    // the actual execute press.
     if (mode === "run" && isDestructiveStatement(chosenSql)) {
       const ok = await confirm({
         title: t("destructive-confirm.title", {

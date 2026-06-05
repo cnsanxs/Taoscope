@@ -16,6 +16,7 @@ import {
   FilePlus,
   FileText,
   Layers,
+  Loader2,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -70,6 +71,41 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const CHILD_PAGE_SIZE = 50;
+
+/** Small chip next to each connection name indicating which transport the
+ *  connection uses. When `reconnecting` is true (backend is mid-reconnect),
+ *  it picks up an amber tint and shows a spinner so the user has visible
+ *  confirmation that a transient ws drop is being recovered. */
+function TransportBadge({
+  transport,
+  reconnecting,
+}: {
+  transport: "http" | "ws";
+  reconnecting: boolean;
+}) {
+  const { t } = useTranslation("connection");
+  const label = transport === "ws" ? "WS" : "HTTP";
+  const tooltipKey =
+    transport === "ws"
+      ? "resources-panel.transport-badge.tooltip.ws"
+      : "resources-panel.transport-badge.tooltip.http";
+  return (
+    <span
+      title={t(tooltipKey)}
+      className={cn(
+        "ml-1 inline-flex shrink-0 items-center gap-0.5 rounded-sm px-1 font-mono text-[10px] leading-4 tabular-nums",
+        reconnecting
+          ? "bg-amber-500/20 text-amber-600 dark:text-amber-300"
+          : "bg-muted/40 text-muted-foreground/70",
+      )}
+    >
+      {label}
+      {reconnecting ? (
+        <Loader2 className="h-2.5 w-2.5 animate-spin" aria-hidden />
+      ) : null}
+    </span>
+  );
+}
 
 interface DialogState {
   open: boolean;
@@ -295,6 +331,7 @@ export function ResourcesPanel() {
   const ds = useDataSource();
   const connections = useAppState((s) => s.connections);
   const setConnections = useAppState((s) => s.setConnections);
+  const connectionRuntime = useAppState((s) => s.connectionRuntime);
   const consoles = useAppState((s) => s.consoles);
   const setActiveConsole = useAppState((s) => s.setActiveConsole);
   const removeConsolesByConnection = useAppState(
@@ -1151,6 +1188,12 @@ export function ResourcesPanel() {
                           >
                             {highlight(c.name, query)}
                           </span>
+                          <TransportBadge
+                            transport={c.transport}
+                            reconnecting={
+                              connectionRuntime[c.id]?.reconnecting ?? false
+                            }
+                          />
                         </div>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>

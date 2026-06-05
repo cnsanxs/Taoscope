@@ -39,9 +39,24 @@ const DEFAULT_RUNTIME: ConsoleRuntimeEntry = {
   runningQueryId: null,
 };
 
+/** Ephemeral per-connection runtime state. Not persisted; rebuilt from
+ *  backend reconnect events on each session. */
+export interface ConnectionRuntimeEntry {
+  /** True between `connection:reconnecting` and the next
+   *  `connection:reconnected` / `connection:reconnect-failed` event. */
+  reconnecting: boolean;
+}
+
 interface AppState {
   connections: Connection[];
   setConnections: (connections: Connection[]) => void;
+  /** Update one connection's `status` field in place. Used by the reconnect
+   *  event subscriber to flip a connection to `offline` when reconnect fails. */
+  setConnectionStatus: (connId: string, status: "online" | "offline") => void;
+
+  /** Ephemeral, not persisted. Keyed by connection id. */
+  connectionRuntime: Record<string, ConnectionRuntimeEntry>;
+  setReconnecting: (connId: string, value: boolean) => void;
 
   consoles: Console[];
   setConsoles: (list: Console[]) => void;
@@ -77,6 +92,19 @@ interface AppState {
   clearPendingAppendAndRun: () => void;
 
   consoleRuntime: Record<string, ConsoleRuntimeEntry>;
+
+  /** Ephemeral per-console "primed" range for the two-stage smart-exec flow.
+   *  Set when the user presses Run on a multi-line statement; cleared on
+   *  edit, selection change, console/db switch, Esc, or successful execute. */
+  primedRanges: Record<
+    string,
+    { from: number; to: number; scratchHash: number } | undefined
+  >;
+  setPrimedRange: (
+    consoleId: string,
+    range: { from: number; to: number; scratchHash: number } | null,
+  ) => void;
+
   hydrateConsoleRuntime: (
     id: string,
     init: Partial<ConsoleRuntimeEntry>,
@@ -92,6 +120,27 @@ interface AppState {
 export const useAppState = create<AppState>((set) => ({
   connections: [],
   setConnections: (connections) => set({ connections }),
+  setConnectionStatus: (connId, status) =>
+    set((state) => ({
+      connections: state.connections.map((c) =>
+        c.id === connId ? { ...c, status } : c,
+      ),
+    })),
+
+  connectionRuntime: {},
+  setReconnecting: (connId, value) =>
+    set((state) => {
+      const prev = state.connectionRuntime[connId];
+      // Avoid producing a new object when the value isn't actually changing —
+      // keeps subscribers from re-rendering on duplicate events.
+      if (prev?.reconnecting === value) return state;
+      return {
+        connectionRuntime: {
+          ...state.connectionRuntime,
+          [connId]: { reconnecting: value },
+        },
+      };
+    }),
 
   consoles: [],
   setConsoles: (list) => set({ consoles: list }),
@@ -103,7 +152,9 @@ export const useAppState = create<AppState>((set) => ({
         state.activeConsoleId === id ? null : state.activeConsoleId;
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [id]: _dropped, ...consoleRuntime } = state.consoleRuntime;
-      return { consoles, activeConsoleId, consoleRuntime };
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { [id]: _droppedPrime, ...primedRanges } = state.primedRanges;
+      return { consoles, activeConsoleId, consoleRuntime, primedRanges };
     }),
   removeConsolesByConnection: (connectionId) =>
     set((state) => {
@@ -123,21 +174,52 @@ export const useAppState = create<AppState>((set) => ({
           ([cid]) => !dropped.has(cid),
         ),
       );
-      return { consoles, activeConsoleId, consoleRuntime };
+      const primedRanges = Object.fromEntries(
+        Object.entries(state.primedRanges).filter(([cid]) => !dropped.has(cid)),
+      );
+      return { consoles, activeConsoleId, consoleRuntime, primedRanges };
     }),
   renameConsoleLocal: (id, name) =>
     set((state) => ({
       consoles: state.consoles.map((c) => (c.id === id ? { ...c, name } : c)),
     })),
   setConsoleDbLocal: (id, db) =>
-    set((state) => ({
-      consoles: state.consoles.map((c) =>
-        c.id === id ? { ...c, currentDb: db } : c,
-      ),
-    })),
+    set((state) => {
+      // A db switch invalidates any primed range — the user's mental model
+      // of "what's about to run" no longer holds.
+      let primedRanges = state.primedRanges;
+      if (primedRanges[id]) {
+        const next = { ...primedRanges };
+        delete next[id];
+        primedRanges = next;
+      }
+      return {
+        consoles: state.consoles.map((c) =>
+          c.id === id ? { ...c, currentDb: db } : c,
+        ),
+        primedRanges,
+      };
+    }),
 
   activeConsoleId: null,
-  setActiveConsole: (id) => set({ activeConsoleId: id }),
+  setActiveConsole: (id) =>
+    set((state) => {
+      const prevId = state.activeConsoleId;
+      // Defense in depth: clear primed on both the leaving and the arriving
+      // console so a stale prime can never bleed across tabs.
+      let primedRanges = state.primedRanges;
+      if (prevId && primedRanges[prevId]) {
+        const next = { ...primedRanges };
+        delete next[prevId];
+        primedRanges = next;
+      }
+      if (id && primedRanges[id]) {
+        const next = { ...primedRanges };
+        delete next[id];
+        primedRanges = next;
+      }
+      return { activeConsoleId: id, primedRanges };
+    }),
 
   resourceFocus: null,
   requestResourceFocus: (connId, db) =>
@@ -165,6 +247,30 @@ export const useAppState = create<AppState>((set) => ({
   clearPendingAppendAndRun: () => set({ pendingAppendAndRun: null }),
 
   consoleRuntime: {},
+
+  primedRanges: {},
+  setPrimedRange: (consoleId, range) =>
+    set((state) => {
+      const existing = state.primedRanges[consoleId];
+      if (range === null) {
+        if (!existing) return state;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { [consoleId]: _dropped, ...rest } = state.primedRanges;
+        return { primedRanges: rest };
+      }
+      if (
+        existing &&
+        existing.from === range.from &&
+        existing.to === range.to &&
+        existing.scratchHash === range.scratchHash
+      ) {
+        return state;
+      }
+      return {
+        primedRanges: { ...state.primedRanges, [consoleId]: range },
+      };
+    }),
+
   hydrateConsoleRuntime: (id, init) =>
     set((state) => {
       if (state.consoleRuntime[id]) return state;

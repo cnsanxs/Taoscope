@@ -55,7 +55,10 @@
     "updated": "Connection updated",
     "deleted": "Connection deleted",
     "offline": "{{name}} is offline",
-    "refreshed": "Refreshed {{name}}"
+    "refreshed": "Refreshed {{name}}",
+    "reconnecting": "Reconnecting…",
+    "reconnected": "Connection restored",
+    "reconnect-failed": "Reconnect failed: {{error}}"
   },
   "resources-panel": {
     "title": "Resources",
@@ -90,6 +93,12 @@
     "tooltip": {
       "actions-for": "Actions for {{name}}",
       "open-console": "Open a console on {{name}}"
+    },
+    "transport-badge": {
+      "tooltip": {
+        "ws": "WebSocket transport",
+        "http": "HTTP REST transport"
+      }
     },
     "tree": {
       "loading": "Loading…",

@@ -77,6 +77,11 @@ export function ConsoleShortcuts() {
       const bothMod = e.metaKey && e.ctrlKey;
       if (!modOn || bothMod) return;
       if (e.altKey) return;
+      // The editor's CM keymap already handles Mod+Shift+Enter (with
+      // `preventDefault: true`) when focused. Without this guard the
+      // window-level fallback fires a second `explain()` for the same
+      // press, which collides with the prime/execute state machine.
+      if (e.defaultPrevented) return;
 
       const s = stateRef.current;
 

@@ -95,5 +95,9 @@
   },
   "format": {
     "failed": "SQL 格式化失败：{{message}}"
+  },
+  "exec": {
+    "primed-toast": "再按一次执行选中段落（{{shortcut}}）",
+    "multi-stmt-warning": "检测到多条 SQL，已只执行光标处的那一条。按 Esc 清除选区。"
   }
 }

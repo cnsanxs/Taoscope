@@ -27,7 +27,7 @@ Built on Tauri 2 (Rust shell) + React 18 — a small, native binary that connect
 
 ### Connections & resources
 
-- **Multi-connection workspace** — manage many TDengine clusters side by side, online/offline indicators, per-connection refresh. **HTTP REST or native WebSocket** transport, **Basic or token** auth, optional TLS (with allow-invalid-certs escape hatch).
+- **Multi-connection workspace** — manage many TDengine clusters side by side, online/offline indicators, per-connection refresh. **HTTP REST or native WebSocket** transport (each connection row shows a compact `WS` / `HTTP` badge so the transport is always visible), **Basic or token** auth, optional TLS (with allow-invalid-certs escape hatch). Transient ws drops (server idle timeout, taosAdapter restarts, brief network blips) are recovered automatically: the badge turns amber + spins during reconnect, returns to normal once the next query succeeds.
 - **Visual table designer** — right-click in the tree to create databases / super tables / tables / child tables, edit columns & tags, or drop objects; the exact SQL is previewed live below the form before you run it.
 - **Tree-style resources panel** — Connection → Database → STable / Table → inline **Columns & tags** + **Child tables**, each with a unified `⋯` / right-click action menu. Deleting a connection cascades to its consoles + saved state. Expansion state persists across reloads.
 - **Double-click a sub-table** to open (or reuse) a console bound to its database and auto-append + execute `SELECT * FROM <child>;` — zero typing for a quick peek at a child table's rows.
@@ -39,6 +39,7 @@ Built on Tauri 2 (Rust shell) + React 18 — a small, native binary that connect
 - **CodeMirror editor** with a TDengine-tuned dialect (small keyword set, no MySQL bloat), syntax highlighting, line numbers, mono-spaced 13 px UI font.
 - **Schema-aware autocomplete** that understands the active statement's `FROM` clause and surfaces only that table's columns + tags. Falls back silently when it can't.
 - **Run modes** — selection / statement-at-cursor / full scratch, all on `⌘↵`.
+- **Smart execute at cursor** — single-line statements run on the first `⌘↵`. For multi-line statements, the first press *highlights the full statement* (string- and comment-aware, so `;` inside `'…'` or `-- …` no longer misleads) and shows a toast — the second `⌘↵` actually runs it. Press `Esc` to cancel the highlight, or just keep editing. Manual selections still run one-shot.
 - **Reads, writes & DDL** — `SELECT`, `INSERT`, `CREATE` / `ALTER` / `DROP`, `DELETE`, `SHOW`, `DESCRIBE` all run; write/DDL statements report "affected N rows" and `DROP` / `DELETE` ask for confirmation first.
 - **EXPLAIN** the statement at cursor; **cancel** a long-running query; **per-connection timeout**.
 - **Format**, **toggle-comment**, **copy-line-down**, history navigation — same shortcuts as JetBrains / VS Code.

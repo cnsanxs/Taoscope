@@ -55,7 +55,10 @@
     "updated": "连接已更新",
     "deleted": "连接已删除",
     "offline": "{{name}} 已离线",
-    "refreshed": "已刷新 {{name}}"
+    "refreshed": "已刷新 {{name}}",
+    "reconnecting": "正在重连…",
+    "reconnected": "连接已恢复",
+    "reconnect-failed": "重连失败：{{error}}"
   },
   "resources-panel": {
     "title": "资源",
@@ -89,6 +92,12 @@
     "tooltip": {
       "actions-for": "{{name}} 的操作",
       "open-console": "在 {{name}} 上打开控制台"
+    },
+    "transport-badge": {
+      "tooltip": {
+        "ws": "WebSocket 传输",
+        "http": "HTTP REST 传输"
+      }
     },
     "tree": {
       "loading": "加载中…",

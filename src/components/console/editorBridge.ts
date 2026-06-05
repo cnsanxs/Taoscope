@@ -48,3 +48,20 @@ export function getSelectionText(): string {
 export function getDocText(): string | null {
   return _view?.state.doc.toString() ?? null;
 }
+
+export function setSelection(from: number, to: number): void {
+  const v = _view;
+  if (!v) return;
+  v.dispatch({
+    selection: { anchor: from, head: to },
+    scrollIntoView: true,
+  });
+  v.focus();
+}
+
+export function collapseSelectionToHead(): void {
+  const v = _view;
+  if (!v) return;
+  const head = v.state.selection.main.head;
+  v.dispatch({ selection: { anchor: head, head } });
+}

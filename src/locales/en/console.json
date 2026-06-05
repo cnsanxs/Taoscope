@@ -95,5 +95,9 @@
   },
   "format": {
     "failed": "Failed to format SQL: {{message}}"
+  },
+  "exec": {
+    "primed-toast": "Press Run again to execute the selected statement ({{shortcut}})",
+    "multi-stmt-warning": "Found multiple SQL statements; ran only the one at the cursor. Press Esc to clear the selection."
   }
 }

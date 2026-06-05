@@ -17,6 +17,7 @@ import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { Prec } from "@codemirror/state";
 import { useDataSource } from "@/datasource/context";
 import { useAppState } from "@/store/appState";
+import { hashString } from "@/lib/hashString";
 import * as editorBridge from "./editorBridge";
 import { useExplainActiveConsole } from "./useExplainActiveConsole";
 import { useRunActiveConsole } from "./useRunActiveConsole";
@@ -36,10 +37,24 @@ export function Editor() {
   );
   const hydrateConsoleRuntime = useAppState((s) => s.hydrateConsoleRuntime);
   const setScratch = useAppState((s) => s.setScratch);
+  const setPrimedRange = useAppState((s) => s.setPrimedRange);
   const pendingAppendAndRun = useAppState((s) => s.pendingAppendAndRun);
   const clearPendingAppendAndRun = useAppState(
     (s) => s.clearPendingAppendAndRun,
   );
+
+  // Refs let CodeMirror's keymap and updateListener (built once via
+  // useMemo) read the latest activeConsoleId without rebuilding extensions
+  // on every console switch.
+  const activeConsoleIdRef = useRef<string | null>(activeConsoleId);
+  useEffect(() => {
+    activeConsoleIdRef.current = activeConsoleId;
+  }, [activeConsoleId]);
+
+  const setPrimedRangeRef = useRef(setPrimedRange);
+  useEffect(() => {
+    setPrimedRangeRef.current = setPrimedRange;
+  }, [setPrimedRange]);
 
   const { run } = useRunActiveConsole();
   const runRef = useRef<() => void>(() => {});
@@ -156,6 +171,21 @@ export function Editor() {
     runRef.current();
   }, [pendingSelection, viewReady, activeConsoleId, runtime]);
 
+  // Drop any residual non-collapsed selection when the active console
+  // changes. CM keeps a single EditorView across console switches, so a
+  // drag-select left over in console A would otherwise survive into
+  // console B and get scooped up by exec's CASE A path — silently
+  // executing the wrong SQL.
+  useEffect(() => {
+    if (!viewReady) return;
+    const view = viewRef.current;
+    if (!view) return;
+    const sel = view.state.selection.main;
+    if (sel.from !== sel.to) {
+      view.dispatch({ selection: { anchor: sel.head, head: sel.head } });
+    }
+  }, [activeConsoleId, viewReady]);
+
   // Track which console ids have been hydration-started this session to
   // avoid double-fetching during re-renders.
   const hydratingRef = useRef<Set<string>>(new Set());
@@ -233,8 +263,43 @@ export function Editor() {
               return true;
             },
           },
+          {
+            key: "Escape",
+            run: (view) => {
+              const id = activeConsoleIdRef.current;
+              if (!id) return false;
+              const primed = useAppState.getState().primedRanges[id];
+              const sel = view.state.selection.main;
+              const hasSelection = sel.from !== sel.to;
+              // Only intercept when there's something to clear — primed
+              // state or a non-empty selection. Otherwise let CM's default
+              // Escape handler run.
+              if (!primed && !hasSelection) return false;
+              if (primed) setPrimedRangeRef.current(id, null);
+              // Collapse selection to its head so any residual range —
+              // whether the visual prime or an unrelated drag-select that
+              // would otherwise be picked up by CASE A on the next Run —
+              // goes away.
+              view.dispatch({ selection: { anchor: sel.head, head: sel.head } });
+              return true;
+            },
+          },
         ]),
       ),
+      // Selection-change observer: any movement that no longer matches the
+      // primed range invalidates it. Edits invalidate via the dedicated
+      // hash check in onChange below.
+      EditorView.updateListener.of((update) => {
+        if (!update.selectionSet) return;
+        const id = activeConsoleIdRef.current;
+        if (!id) return;
+        const primed = useAppState.getState().primedRanges[id];
+        if (!primed) return;
+        const sel = update.state.selection.main;
+        if (sel.from !== primed.from || sel.to !== primed.to) {
+          setPrimedRangeRef.current(id, null);
+        }
+      }),
       keymap.of([
         ...defaultKeymap,
         ...historyKeymap,
@@ -276,7 +341,18 @@ export function Editor() {
     <div className="flex min-h-0 flex-1 p-2">
       <CodeMirror
         value={runtime.scratch}
-        onChange={(v) => setScratch(activeConsoleId, v)}
+        onChange={(v) => {
+          setScratch(activeConsoleId, v);
+          // Any edit that changes the scratch hash invalidates the primed
+          // range — the user's "what's about to run" no longer matches
+          // what we captured. The selection listener handles cursor moves
+          // separately; this branch fires even when selection is unchanged
+          // (e.g. typing inside the primed selection's boundaries).
+          const primed = useAppState.getState().primedRanges[activeConsoleId];
+          if (primed && primed.scratchHash !== hashString(v)) {
+            setPrimedRange(activeConsoleId, null);
+          }
+        }}
         onCreateEditor={handleCreateEditor}
         height="100%"
         theme={taoscopeEditorTheme}
