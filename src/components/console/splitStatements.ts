@@ -127,13 +127,11 @@ export function findStatementAt(
   return ranges[ranges.length - 1] ?? null;
 }
 
-export function isSingleLineStatement(
-  _sql: string,
-  range: StatementRange,
-): boolean {
-  // Use the trimmed text because the raw slice now includes the trailing
-  // newline after `;` (see splitStatements); checking the raw slice would
-  // wrongly flag `SELECT 1;\n` as multi-line. `_sql` is kept for API
-  // compatibility with callers that still pass it.
+export function isSingleLineStatement(range: StatementRange): boolean {
+  // Based on `range.text` (trimmed) rather than the raw slice. The raw
+  // slice now includes the `;` + trailing newline that splitStatements
+  // folds into `range.end` (so a cursor at the visual end of "SELECT 1;"
+  // still resolves to that statement); checking it directly would
+  // wrongly flag "SELECT 1;\n" as multi-line.
   return range.text.indexOf("\n") === -1;
 }

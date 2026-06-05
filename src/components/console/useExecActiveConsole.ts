@@ -92,7 +92,7 @@ export function useExecActiveConsole(
         return;
       }
 
-      if (isSingleLineStatement(fullScratch, range)) {
+      if (isSingleLineStatement(range)) {
         // CASE C — single-line: execute immediately, drop any stale prime.
         setPrimedRange(id, null);
         chosenSql = range.text;
@@ -126,21 +126,26 @@ export function useExecActiveConsole(
     if (chosenSql.trim().length === 0) return;
 
     // Multi-statement guard. If `chosenSql` parses into >1 statements
-    // (e.g. a stale selection covering several `;`-separated SQLs, or a
-    // CASE D fallback to the whole scratch), sending it as a `;`-joined
-    // blob would dispatch only the first statement on the TDengine REST
-    // path and leave the appended `LIMIT 1001` bound to nothing — the
-    // user then sees an uncapped result they didn't ask for. Snap the
-    // choice down to the statement at the document cursor (or the first
-    // statement if no cursor) and warn.
+    // (e.g. a stale selection covering several `;`-separated SQLs), sending
+    // it as a `;`-joined blob would dispatch only the first statement on
+    // the TDengine REST path and leave the appended `LIMIT 1001` bound to
+    // nothing — the user then sees an uncapped result they didn't ask for.
+    // Snap the choice down to the statement at the cursor and warn.
     const parsed = splitStatements(chosenSql);
     if (parsed.length > 1) {
-      const docCursor = editorBridge.getCursorPos();
-      const focused =
-        docCursor !== null
-          ? findStatementAt(fullScratch, docCursor)
-          : null;
-      chosenSql = focused?.text ?? parsed[0]?.text ?? chosenSql;
+      // Without a cursor (CASE D — editor not mounted) there's nothing to
+      // snap to. Refuse rather than guess at the first statement and
+      // mislead the user with a "ran the one at the cursor" toast.
+      if (cursor === null) {
+        toast.warning(t("exec.multi-stmt-warning"), {
+          id: `multi-stmt-${id}`,
+          duration: 4000,
+        });
+        return;
+      }
+      const focused = findStatementAt(fullScratch, cursor);
+      if (!focused) return; // unreachable in practice — earlier trim guard
+      chosenSql = focused.text;
       toast.warning(t("exec.multi-stmt-warning"), {
         id: `multi-stmt-${id}`,
         duration: 4000,
