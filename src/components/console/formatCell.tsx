@@ -13,7 +13,14 @@ export function formatCell(
   }
   switch (col.type) {
     case "TIMESTAMP":
-      if (typeof value === "number") {
+      // Run formatTimestamp regardless of the underlying JS type. The WS
+      // transport returns TIMESTAMP cells as epoch-ms `number`, but the
+      // HTTP REST transport returns them as ISO strings like
+      // "2026-04-26T22:19:38.106Z" — formatTimestamp's `string` branch
+      // re-parses those via Date.parse before applying tz, so both shapes
+      // honor the active picker. Anything that fails to parse falls
+      // through to `String(value)` inside formatTimestamp.
+      if (typeof value === "number" || typeof value === "string") {
         return (
           <span className="font-mono">{formatTimestamp(value, tz)}</span>
         );

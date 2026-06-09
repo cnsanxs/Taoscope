@@ -13,7 +13,13 @@ export function serializeValue(
   tz: TzPref = DEFAULT_TZ,
 ): string {
   if (value === null || value === undefined) return "";
-  if (col.type === "TIMESTAMP" && typeof value === "number") {
+  // WS transport returns TIMESTAMP as epoch-ms number; HTTP REST returns
+  // ISO strings. Both must be re-formatted under the active tz so CSV /
+  // TSV / copy-to-clipboard exports match what the grid shows.
+  if (
+    col.type === "TIMESTAMP" &&
+    (typeof value === "number" || typeof value === "string")
+  ) {
     return formatTimestamp(value, tz);
   }
   if (col.type === "BOOL") return value ? "true" : "false";
@@ -37,7 +43,11 @@ export function toCsv(result: QueryResult, tz: TzPref = DEFAULT_TZ): string {
 
 function jsonValue(value: unknown, col: Column, tz: TzPref): unknown {
   if (value === null || value === undefined) return null;
-  if (col.type === "TIMESTAMP" && typeof value === "number") {
+  // Same dual-shape handling as serializeValue — see comment there.
+  if (
+    col.type === "TIMESTAMP" &&
+    (typeof value === "number" || typeof value === "string")
+  ) {
     return formatTimestamp(value, tz);
   }
   return value;
