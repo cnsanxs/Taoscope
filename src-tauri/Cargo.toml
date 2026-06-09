@@ -1,6 +1,6 @@
 [package]
 name = "taoscope"
-version = "1.4.0"
+version = "1.4.1"
 description = "Taoscope — a desktop manager for TDengine"
 authors = ["Taoscope contributors"]
 license = "MIT"
