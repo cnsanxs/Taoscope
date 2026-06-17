@@ -31,13 +31,26 @@ export function ResultExportBar({
   result,
   filterQuery,
   onFilterChange,
+  selectedIds,
 }: {
   result: QueryResult;
   filterQuery: string;
   onFilterChange: (q: string) => void;
+  selectedIds: Set<number>;
 }) {
   const { t } = useTranslation("result");
   const tz = useDisplayPrefs((s) => s.tz);
+
+  // When the user has highlighted rows, every export / copy operates on just
+  // that subset (kept in original data order); otherwise on the full result.
+  const hasSelection = selectedIds.size > 0;
+  const exportResult = useMemo<QueryResult>(() => {
+    if (!hasSelection) return result;
+    return {
+      ...result,
+      rows: result.rows.filter((_, i) => selectedIds.has(i)),
+    };
+  }, [result, selectedIds, hasSelection]);
   const [feedback, setFeedback] = useState<Record<ButtonKey, Feedback>>({
     copyCsv: "idle",
     downloadCsv: "idle",
@@ -153,21 +166,26 @@ export function ResultExportBar({
 
   const showInput = filterExpanded || !!filterQuery;
 
-  const rightMeta = filterQuery
-    ? t("filter.matching", { matched: matchCount, total: result.rowCount })
-    : t("export-bar.row-count-meta", {
-        n: result.rowCount,
-        detail: result.truncated
-          ? t("export-bar.row-count-meta-capped", { cap: 1000 })
-          : t("export-bar.row-count-meta-all"),
-      });
+  const rightMeta = hasSelection
+    ? t("export-bar.selected-meta", {
+        selected: selectedIds.size,
+        total: result.rowCount,
+      })
+    : filterQuery
+      ? t("filter.matching", { matched: matchCount, total: result.rowCount })
+      : t("export-bar.row-count-meta", {
+          n: result.rowCount,
+          detail: result.truncated
+            ? t("export-bar.row-count-meta-capped", { cap: 1000 })
+            : t("export-bar.row-count-meta-all"),
+        });
 
   return (
     <div className="border-border flex shrink-0 items-center gap-1 border-b bg-gradient-to-b from-white/[0.03] to-transparent px-2 py-1">
       {renderButton(
         "copyCsv",
         <Copy className="h-3 w-3" />,
-        () => void handleCopy("copyCsv", toCsv(result, tz)),
+        () => void handleCopy("copyCsv", toCsv(exportResult, tz)),
       )}
       {renderButton(
         "downloadCsv",
@@ -175,7 +193,7 @@ export function ResultExportBar({
         () =>
           handleDownload(
             "downloadCsv",
-            toCsv(result, tz),
+            toCsv(exportResult, tz),
             "text/csv;charset=utf-8",
             buildFilename("csv"),
           ),
@@ -184,7 +202,7 @@ export function ResultExportBar({
       {renderButton(
         "copyJson",
         <Copy className="h-3 w-3" />,
-        () => void handleCopy("copyJson", toJson(result, tz)),
+        () => void handleCopy("copyJson", toJson(exportResult, tz)),
       )}
       {renderButton(
         "downloadJson",
@@ -192,7 +210,7 @@ export function ResultExportBar({
         () =>
           handleDownload(
             "downloadJson",
-            toJson(result, tz),
+            toJson(exportResult, tz),
             "application/json",
             buildFilename("json"),
           ),

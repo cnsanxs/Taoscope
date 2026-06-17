@@ -23,12 +23,24 @@ import {
 
 type RowData = unknown[];
 
+/** Width of the leading row-number / selection gutter column, shared with
+ *  ResultGrid (which renders the matching header cell and includes it in the
+ *  grid's total width). Defined here to keep the import edge one-directional
+ *  (ResultGrid → ResultRow). */
+export const INDEX_COL_WIDTH = 52;
+
 interface ResultRowProps {
   row: TanRow<RowData>;
   columns: Column[];
   totalWidth: number;
   translateY: number;
   zebra: boolean;
+  /** 0-based position in the current (sorted/filtered) row model; shown as
+   *  `rowIndex + 1` in the gutter. */
+  rowIndex: number;
+  selected: boolean;
+  onIndexMouseDown: (pos: number, e: React.MouseEvent) => void;
+  onIndexMouseEnter: (pos: number) => void;
 }
 
 function previewValue(s: string): string {
@@ -53,6 +65,10 @@ function ResultRowImpl({
   totalWidth,
   translateY,
   zebra,
+  rowIndex,
+  selected,
+  onIndexMouseDown,
+  onIndexMouseEnter,
 }: ResultRowProps) {
   const { t } = useTranslation("result");
   const tz = useDisplayPrefs((s) => s.tz);
@@ -107,6 +123,7 @@ function ResultRowImpl({
           className={cn(
             "border-border/50 border-b hover:bg-muted/30",
             zebra && "bg-foreground/[0.03]",
+            selected && "bg-primary/10 hover:bg-primary/15",
           )}
           style={{
             display: "flex",
@@ -118,6 +135,18 @@ function ResultRowImpl({
             width: totalWidth,
           }}
         >
+          <td
+            onMouseDown={(e) => onIndexMouseDown(rowIndex, e)}
+            onMouseEnter={() => onIndexMouseEnter(rowIndex)}
+            title={t("selection.toggle-row")}
+            className={cn(
+              "border-border/30 text-muted-foreground/70 flex shrink-0 cursor-pointer items-center justify-center border-r text-[11px] tabular-nums select-none",
+              selected && "bg-primary/25 text-foreground font-medium",
+            )}
+            style={{ width: INDEX_COL_WIDTH }}
+          >
+            {rowIndex + 1}
+          </td>
           {row.getVisibleCells().map((cell, idx) => {
             const col = columns[idx];
             const numeric = col ? isNumericColumn(col) : false;

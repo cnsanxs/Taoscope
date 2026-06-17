@@ -1,4 +1,11 @@
-import { useMemo, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -13,7 +20,15 @@ import {
   type Updater,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Minus,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
@@ -21,7 +36,7 @@ import type { Column, QueryResult } from "@/datasource/types";
 import { cn } from "@/lib/utils";
 import { useAppState } from "@/store/appState";
 import { formatCell } from "@/components/console/formatCell";
-import { ResultRow } from "@/components/console/ResultRow";
+import { INDEX_COL_WIDTH, ResultRow } from "@/components/console/ResultRow";
 import { columnToText, serializeValue } from "@/components/console/resultExport";
 import { useDisplayPrefs } from "@/state/displayPrefs";
 import type { TzPref } from "@/state/displayPrefs";
@@ -129,9 +144,13 @@ function buildColumnDefs(columns: Column[], tz: TzPref): ColumnDef<Row>[] {
 export function ResultGrid({
   result,
   filterQuery,
+  selectedIds,
+  setSelectedIds,
 }: {
   result: QueryResult;
   filterQuery?: string;
+  selectedIds: Set<number>;
+  setSelectedIds: Dispatch<SetStateAction<Set<number>>>;
 }) {
   const { t } = useTranslation("result");
   const activeId = useAppState((s) => s.activeConsoleId);
@@ -197,6 +216,91 @@ export function ResultGrid({
 
   const parentRef = useRef<HTMLDivElement>(null);
   const rows = table.getRowModel().rows;
+
+  // ── Row selection (gutter column) ──────────────────────────────────────
+  // Selection identity is the original data index (`Number(row.id)`), stable
+  // across sort/filter. Drag ranges are expressed in *visible* positions and
+  // mapped to ids through the current row model. Latest rows/selection are
+  // mirrored into refs so the click/drag handlers can stay referentially
+  // stable — that keeps the memoized ResultRow from re-rendering every row on
+  // each selection change (only rows whose `selected` flag flipped re-render).
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const selectedRef = useRef(selectedIds);
+  selectedRef.current = selectedIds;
+  const dragRef = useRef<{
+    anchor: number;
+    paint: boolean;
+    base: Set<number>;
+  } | null>(null);
+
+  const applyFromBase = useCallback(
+    (base: Set<number>, fromPos: number, toPos: number, paint: boolean) => {
+      const r = rowsRef.current;
+      const lo = Math.min(fromPos, toPos);
+      const hi = Math.max(fromPos, toPos);
+      const next = new Set(base);
+      for (let p = lo; p <= hi; p++) {
+        const row = r[p];
+        if (!row) continue;
+        const id = Number(row.id);
+        if (paint) next.add(id);
+        else next.delete(id);
+      }
+      setSelectedIds(next);
+    },
+    [setSelectedIds],
+  );
+
+  const handleIndexMouseDown = useCallback(
+    (pos: number, e: React.MouseEvent) => {
+      // Left button only; prevent the text-selection that a drag would start.
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const row = rowsRef.current[pos];
+      if (!row) return;
+      const id = Number(row.id);
+      const base = selectedRef.current;
+      const paint = !base.has(id);
+      dragRef.current = { anchor: pos, paint, base: new Set(base) };
+      applyFromBase(dragRef.current.base, pos, pos, paint);
+    },
+    [applyFromBase],
+  );
+
+  const handleIndexMouseEnter = useCallback(
+    (pos: number) => {
+      const d = dragRef.current;
+      if (!d) return;
+      applyFromBase(d.base, d.anchor, pos, d.paint);
+    },
+    [applyFromBase],
+  );
+
+  // End the drag on any mouse release, even outside the grid.
+  useEffect(() => {
+    const up = () => {
+      dragRef.current = null;
+    };
+    window.addEventListener("mouseup", up);
+    return () => window.removeEventListener("mouseup", up);
+  }, []);
+
+  const visibleIds = rows.map((r) => Number(r.id));
+  const allSelected =
+    visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someSelected =
+    !allSelected && visibleIds.some((id) => selectedIds.has(id));
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
@@ -207,7 +311,8 @@ export function ResultGrid({
     overscan: 4,
   });
 
-  const totalWidth = table.getCenterTotalSize();
+  // Grid width includes the fixed selection gutter on top of the data columns.
+  const totalWidth = table.getCenterTotalSize() + INDEX_COL_WIDTH;
 
   return (
     <div ref={parentRef} className="h-full overflow-auto">
@@ -224,6 +329,22 @@ export function ResultGrid({
               key={headerGroup.id}
               style={{ display: "flex", width: totalWidth }}
             >
+              <th
+                onClick={toggleSelectAll}
+                title={t("selection.select-all")}
+                className="bg-muted hover:bg-muted/70 border-border flex shrink-0 cursor-pointer items-center justify-center border-r border-b select-none"
+                style={{ width: INDEX_COL_WIDTH }}
+              >
+                {allSelected ? (
+                  <Check className="h-3 w-3" />
+                ) : someSelected ? (
+                  <Minus className="h-3 w-3" />
+                ) : (
+                  <span className="text-muted-foreground/50 text-[10px]">
+                    #
+                  </span>
+                )}
+              </th>
               {headerGroup.headers.map((header) => {
                 const sortDir = header.column.getIsSorted();
                 const colIdx = result.columns.findIndex(
@@ -369,6 +490,10 @@ export function ResultGrid({
                 totalWidth={totalWidth}
                 translateY={vRow.start}
                 zebra={vRow.index % 2 === 1}
+                rowIndex={vRow.index}
+                selected={selectedIds.has(Number(row.id))}
+                onIndexMouseDown={handleIndexMouseDown}
+                onIndexMouseEnter={handleIndexMouseEnter}
               />
             );
           })}

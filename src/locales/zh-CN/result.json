@@ -57,7 +57,12 @@
     "format-json": "JSON",
     "row-count-meta": "{{n}} 行 · {{detail}}",
     "row-count-meta-all": "全部行",
-    "row-count-meta-capped": "截断至 {{cap}}"
+    "row-count-meta-capped": "截断至 {{cap}}",
+    "selected-meta": "已选 {{selected}} / {{total}} 行"
+  },
+  "selection": {
+    "toggle-row": "点击选中；按住拖动可框选连续多行",
+    "select-all": "全选 / 取消全选"
   },
   "context-menu": {
     "sort-asc": "升序排序",

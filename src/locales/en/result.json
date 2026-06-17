@@ -58,7 +58,12 @@
     "format-json": "JSON",
     "row-count-meta": "{{n}} rows · {{detail}}",
     "row-count-meta-all": "all rows",
-    "row-count-meta-capped": "capped at {{cap}}"
+    "row-count-meta-capped": "capped at {{cap}}",
+    "selected-meta": "{{selected}} of {{total}} selected"
+  },
+  "selection": {
+    "toggle-row": "Click to select; drag to select a range",
+    "select-all": "Select / clear all rows"
   },
   "context-menu": {
     "sort-asc": "Sort ascending",

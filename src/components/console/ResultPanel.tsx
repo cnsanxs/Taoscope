@@ -84,8 +84,12 @@ function AffectedRowsBanner({ result }: { result: QueryResult }) {
 function GridWithBanners({ result }: { result: QueryResult }) {
   const { t } = useTranslation("result");
   const [filterQuery, setFilterQuery] = useState("");
+  // Highlighted rows, by original data index. Reset whenever a new result
+  // arrives so a fresh query never inherits a stale selection.
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   useEffect(() => {
     setFilterQuery("");
+    setSelectedIds(new Set());
   }, [result]);
 
   return (
@@ -94,6 +98,7 @@ function GridWithBanners({ result }: { result: QueryResult }) {
         result={result}
         filterQuery={filterQuery}
         onFilterChange={setFilterQuery}
+        selectedIds={selectedIds}
       />
       {result.truncated && (
         <div className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300 flex shrink-0 items-center gap-1.5 border-b px-3 py-1 text-xs">
@@ -104,7 +109,12 @@ function GridWithBanners({ result }: { result: QueryResult }) {
         </div>
       )}
       <div className="min-h-0 flex-1">
-        <ResultGrid result={result} filterQuery={filterQuery} />
+        <ResultGrid
+          result={result}
+          filterQuery={filterQuery}
+          selectedIds={selectedIds}
+          setSelectedIds={setSelectedIds}
+        />
       </div>
     </div>
   );
