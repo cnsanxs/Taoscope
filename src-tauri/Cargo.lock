@@ -4983,7 +4983,7 @@ dependencies = [
 
 [[package]]
 name = "taoscope"
-version = "1.4.1"
+version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
  "nanoid",
